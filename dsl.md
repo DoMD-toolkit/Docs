@@ -1,8 +1,8 @@
-# Reaction DSL v1: Design Philosophy and Reaction Semantics
+# DoMD Reaction DSL v1: Design Philosophy and Reaction Semantics
 
 ## 1. Scope of the DSL
 
-The Reaction DSL is a minimalist coarse-grained graph reaction language. It is designed to address strictly four programmatic questions:
+The DoMD Reaction DSL is a minimalist coarse-grained graph reaction language. It is designed to address strictly four programmatic questions:
 
 1.  What coarse-grained nodes and filler arms are present in the initial system?
 2.  Which node types are permitted to co-participate in a given reaction rule?
