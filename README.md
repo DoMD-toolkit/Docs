@@ -102,7 +102,7 @@ Functioning strictly as a "Chemical Compiler," DOMD-TOPO bypasses dynamic simula
 
 ## 4. DOMD-AL Example Configuration
 
-The following `config.json` demonstrates a hybrid system featuring radical polymerization and a nanoparticle filler acting as a crosslinking hub.
+The following `config.json` (in `Examples/domd_al_test.zip`) demonstrates a hybrid system featuring radical polymerization and a nanoparticle filler acting as a crosslinking hub.
 
 ### 4.1 Reactants
 
