@@ -204,8 +204,6 @@ sequenceDiagram
 * **Mechanism Execution:** The omission of the `kind` parameter defaults the reaction to `"general"`. The computational engine subsequently samples from the entire pool of `P` nodes, disregarding their active or inactive status.
 * **Type Change (The Isomorphic Transition):** Node 0 (type `P`) is mathematically instructed to transition `to` type `"P"`. This deliberate redundancy within the DSL forces the deterministic generation of a `TypeChangeEvent(from=P, to=P)`. This design pattern enables the explicit recording of a coarse-grained coupling event within the Reaction Path history without necessitating the formulation of a superficial chemical type within the state machine.
 
-
-
 ```json
 {
   "name": "R-P",
@@ -218,4 +216,81 @@ sequenceDiagram
 ```
 
 * **Filler Crosslinking:** This rule dictates the topological linkage between the reactive `R` species (predominantly functioning as `SiO2` filler arms) and the `P` polymer matrix.
+
+## 5. DOMD-TOPO Example: Static Topological Reconstruction
+
+To delineate the operational modality of DOMD-TOPO when decoupled from dynamic simulations, the following `config.json` (in `Examples/au_peg_au.zip`) illustrates a pure topological reconstruction. This configuration is deployed when a user provides a pre-equilibrated coarse-grained configuration (e.g., derived from external particle engines) but lacks the explicit chronological reaction history. Under these conditions, DOMD-TOPO functions strictly as a "Chemical Compilation" engine, utilizing a Breadth-First Search (BFS) algorithm to infer connection pathways and reconstruct the all-atom (AA) graph.
+
+### 5.1 System Initialization and Reactants
+
+In this static compilation mode, the DSL discards dynamic state parameters (such as `activate`, `max_valence`, or discrete node generation limits `N`). The objective is solely to establish the chemical identity of the CG beads mapping to the provided coordinate file.
+
+```json
+"cg_topology_file": "out_au_peo_au_large.xml",
+"reactants": [
+    {
+        "name": "PEO",
+        "smiles": "OCCO"
+    },
+    {
+        "name": "Au_G",
+        "smarts": "[Au]"
+    }
+]
+
+```
+
+* **Topological Input:** The `cg_topology_file` explicitly references an external data structure (`out_au_peo_au_large.xml`) containing the requisite 3D spatial coordinate vectors and structural rigid-body grouping indices for the CG system.
+* **Chemical Descriptors:** The `reactants` array defines the baseline molecular identities. The polyethylene oxide (`PEO`) matrix is defined via its standard SMILES string, while the reactive gold surface grafting sites (`Au_G`) are defined via an elemental SMARTS descriptor.
+
+### 5.2 Filler Constraints and Structural Mapping
+
+The `fillers` section introduces the rigid geometry of gold nanoparticles (`Au`) into the topological reconstruction.
+
+```json
+"fillers": [
+    {
+        "name": "Au",
+        "file": "au.pdb",
+        "mappings": [
+            { "cg_id": 0, "atom_idx": [0], "type": "Au_G" },
+            { "cg_id": 18, "atom_idx": [18], "type": "Au_G" }
+            // ... additional mappings ...
+        ],
+        "filler_idx": [0]
+    }
+]
+
+```
+
+* **Explicit Anchoring:** Unlike the dynamic DOMD-AL workflow where arms react randomly, this configuration strictly maps predefined CG spatial nodes (`cg_id`) to exact atom indices (`atom_idx`) on the input `au.pdb` structure.
+* **Type Designation:** Selected atoms on the gold nanoparticle surface are explicitly designated with `"type": "Au_G"`. This instructs the S-CGFG engine to treat these specific coordinates as valid structural anchoring points for the polymer matrix during the subsequent embedding phase.
+
+### 5.3 Static Reaction Templates and BFS Fallback
+
+The `reactions` block in this configuration is stripped of kinetic semantics (e.g., `intrinsic_probability`, `kind`, `activation`). It functions solely as a structural template library to direct localized topological assembly.
+
+```json
+"reactions": [
+    {
+        "name": "a",
+        "reactants": [["PEO", "PEO"]],
+        "smarts": "[C:1][O:2].[O:3][C:4]>>[C:1][O:2][C:4].[O:3]",
+        "prod_idx": [0]
+    },
+    {
+        "name": "b",
+        "reactants": [["Au_G", "PEO"]],
+        "smarts": "[Au:1].[O:2][C:3]>>[Au:1][O:2][C:3]",
+        "prod_idx": [0]
+    }
+]
+
+```
+
+* **Template Mechanisms:**
+* Template `a` dictates the dehydration condensation linkage between two `PEO` monomers, relying on explicit map identifiers to define the reactive centers.
+* Template `b` delineates the grafting coordination between a gold surface site (`Au_G`) and a `PEO` oxygen atom.
+* **The Breadth-First Search (BFS) Solver:** Because the input XML file provides the final graph connectivity but lacks the chronological historical order of bond formation, the topological compiler must determine a mathematically valid sequence to iteratively construct the AA configuration.
+* **Algorithmic Resolution:** The engine implements an implicit BFS sorting algorithm to systematically infer default connection pathways across the macroscopic crosslinked network. The BFS systematically queries the static templates (`a` and `b`) to stitch the corresponding monomer subgraphs. Concurrently, it maintains a unified Reacted Atom Set to enforce state verification, ensuring that valency boundaries are not violated during the deterministic backmapping of abstract graph connections into physical Cartesian coordinates.
 * **SMARTS Execution & Product Indexing:** The SMARTS string explicitly delineates a hydrogen atom (`[H:3]`) dissociating from the nitrogen to facilitate the target `N-C` bond formation. The `prod_idx: [0]` parameter instructs the compilation engine to strictly evaluate the primary product molecule generated by the RDKit backend when registering the resultant coarse-grained edges.
