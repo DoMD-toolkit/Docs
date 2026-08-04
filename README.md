@@ -91,3 +91,123 @@ For **DOMD-TOPO**, the `config.json` is vastly simplified. You only need to prov
 * A simplified `reaction_template` containing the topological SMARTS templates that define how these beads connect.
 
 Because DOMD-TOPO acts purely as a "Chemical Compiler," it discards the dynamic simulation semantics (like probabilities and active/inactive states). If historical reaction order pathways are missing from your input, DOMD-TOPO will simply utilize a Breadth-First Search (BFS) algorithm to infer the default connection pathways and rebuild the All-Atom graph.
+
+Here is a detailed breakdown of the `config.json` example to illustrate how DOMD-AL orchestrates a complex simulation.
+
+---
+
+## 4. DOMD-AL Example: Deconstructing the Reaction DSL
+
+To understand how DOMD-AL executes a reaction simulation, let's dissect the provided `config.json`. This configuration defines a hybrid system featuring radical polymerization (involving initiators and monomers) alongside a nanoparticle filler that acts as a crosslinking hub. The whole example (`config.json` with `core.pdb`) is offered as `Examples/domd_al_example.zip`.
+
+### 4.1 Reactants: The Building Blocks
+
+The `reactants` array defines the fundamental chemical species and their initial states.
+
+| Name | Type | Properties | Role in System |
+| --- | --- | --- | --- |
+| **I** | `CC` | `N=5`, `max_valence=1`, `activate=5` | **Initiator:** There are 5 independent molecules generated. All 5 are immediately placed into the `active` node pool to kick off radical reactions. Its valence cap is 1, meaning it can only form one bond. |
+| **P** | `CC` | `N=10`, `max_valence=2` | **Polymer/Monomer:** 10 independent molecules. By default, `activate` is 0, so these begin in the `inactive` pool. A `max_valence` of 2 allows it to chain together (forming linear backbones). |
+| **R** | `[N:1]([H:2])[H:3]` | `N=2`, `max_valence=2`, `activate=4` | **Reactive Linker:** 2 standalone molecules are generated. However, it requires 4 `active` nodes. This is legally permitted because `R` is also utilized as a filler arm (see below), meaning the total pool of `R` nodes is large enough to supply 4 active states. |
+| **Q** | `[NH3]` | `max_valence=3` | **Fragment:** Defined via `smarts`, meaning it cannot exist independently (no `N` parameter is allowed). It acts as a structural template, capping at 3 topological connections. |
+
+### 4.2 Fillers: Complex Topological Hubs
+
+The `fillers` section introduces spatial constraints and complex geometries into the CG graph.
+
+```json
+"fillers": [
+  {
+    "name": "SiO2",
+    "N": 2,
+    "file": "core.pdb",
+    "mappings": [...]
+  }
+]
+
+```
+
+Here, we define 2 instances of a Silica (`SiO2`) nanoparticle.
+
+* **The Anatomy:** Each filler is parsed into a strictly non-reactive central core and several reactive arms.
+* **The Mappings:** The `mappings` array explicitly dictates that this filler has 4 arms (`cg_id` 1 through 4).
+* **Type Inheritance:** Crucially, each arm is assigned `"type": "R"`. This means these filler arms inherit the structural properties (`max_valence=2`) and are injected directly into the global node pools for reactant `R`.
+
+```mermaid
+graph TD
+    C["SiO2 Filler Center (Non-reactive)"] --- A1["Arm cg_id:1 (Type: R)"]
+    C --- A2["Arm cg_id:2 (Type: R)"]
+    C --- A3["Arm cg_id:3 (Type: R)"]
+    C --- A4["Arm cg_id:4 (Type: R)"]
+    
+    style C fill:#f9f,stroke:#333,stroke-width:2px
+    style A1 fill:#bbf,stroke:#333
+    style A2 fill:#bbf,stroke:#333
+    style A3 fill:#bbf,stroke:#333
+    style A4 fill:#bbf,stroke:#333
+
+```
+
+Because we have two `SiO2` fillers, 8 `R` arms are added to the system, combining with the 2 standalone `R` nodes for a total pool of 10 `R` nodes. The `activate: 4` command in the reactant section will randomly ignite 4 of these 10 nodes.
+
+### 4.3 Reactions: Governing the State Machine
+
+The `reactions` array defines the topological rules and state transitions for the simulation.
+
+#### A. Radical Mechanisms (Initiation & Propagation)
+
+```json
+{
+  "name": "IP-radical",
+  "kind": "radical",
+  "reactants": ["I", "P"],
+  "activation": { "from": 0, "to": 1 }
+}
+
+```
+
+* **Mechanism:** Because `kind` is `"radical"`, DOMD-AL enforces strict pool selection. Slot 0 (`I`) must be drawn from the `active` pool, and Slot 1 (`P`) is drawn from the `inactive` pool.
+* **Active Transfer:** The `"activation"` block acts as a state engine. Upon successful reaction, the active (radical) state transfers `from` Slot 0 (`I`) `to` Slot 1 (`P`).
+* **Propagation (`PP-radical`):** Similarly, the `PP-radical` rule allows an active `P` to react with an inactive `P`, propagating the active state down the polymer chain.
+
+```mermaid
+sequenceDiagram
+    participant Active Pool
+    participant Inactive Pool
+    participant System State
+    
+    Active Pool->>System State: Slot 0 (Reactant I)
+    Inactive Pool->>System State: Slot 1 (Reactant P)
+    System State-->>System State: Form I-P Bond
+    System State->>Inactive Pool: Slot 0 (I) loses active state
+    System State->>Active Pool: Slot 1 (P) gains active state
+
+```
+
+#### B. General Mechanisms (Crosslinking & Explicit Logging)
+
+```json
+{
+  "name": "PP-general",
+  "reactants": ["P", "P"],
+  "type_changes": [ { "node": 0, "to": "P" } ]
+}
+
+```
+
+* **Mechanism:** Omitting `kind` defaults to a `"general"` reaction. The engine simply draws from the complete pool of `P` nodes, regardless of their active/inactive status.
+* **Type Change (The `B -> B` Trick):** Notice that node 0 (type `P`) is instructed to change `to` type `"P"`. While this seems redundant, the DSL explicitly supports this to force the generation of a `TypeChangeEvent(from=P, to=P)`. This is a clever design pattern: it safely logs a coarse-grained coupling step explicitly in the Reaction Path history without actually having to invent a brand-new chemical type for the state machine.
+
+```json
+{
+  "name": "R-P",
+  "reactants": ["R", "P"],
+  "smarts": "[N:1][H:3].[CH3:2]>>[N:1][C:2].[H:3]",
+  "prod_idx": [0],
+  "type_changes": [ { "node": 1, "to": "P" } ]
+}
+
+```
+
+* **Crosslinking the Filler:** This rule links the reactive `R` species (which, remember, are mostly acting as arms on the `SiO2` filler) to the `P` polymer matrix.
+* **SMARTS & Product Index:** The SMARTS explicitly shows a Hydrogen (`[H:3]`) leaving the Nitrogen to form the `N-C` bond. The `prod_idx: [0]` tells the compiler to look exclusively at the first generated product molecule in the RDKit backend to map the new coarse-grained edges.
