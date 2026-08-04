@@ -286,6 +286,8 @@ The `reactions` block in this configuration is stripped of kinetic semantics (e.
     }
 ]
 
+![au_peg_au](./images/au_peg_au.png)
+
 ```
 
 * **Template Mechanisms:**
