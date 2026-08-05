@@ -90,13 +90,11 @@ For systems with a predefined CG scheme and a corresponding CG conformation (e.g
 In the context of **DOMD-TOPO**, the `config.json` is significantly condensed, requiring only:
 
 * A `reactants_config` dictionary mapping active CG bead types to their constituent AA SMILES representations.
-
-
 * A simplified `reaction_template` detailing the topological SMARTS templates that govern spatial bead connectivity.
 
 
 
-Functioning strictly as a "Chemical Compiler," DOMD-TOPO bypasses dynamic simulation semantics (such as reaction probabilities and active/inactive state tracking). In instances where empirical chronological reaction order pathways are omitted, DOMD-TOPO defaults to a Breadth-First Search (BFS) algorithm to deduce fundamental connection pathways and reconstruct the fully atomistic topological graph.
+DOMD-TOPO bypasses dynamic simulation semantics (such as reaction probabilities and active/inactive state tracking). In instances where empirical chronological reaction order pathways are omitted, DOMD-TOPO defaults to a Breadth-First Search (BFS) algorithm to deduce fundamental connection pathways and reconstruct the fully atomistic topological graph.
 
 ---
 
