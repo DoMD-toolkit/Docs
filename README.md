@@ -14,7 +14,7 @@ This document serves as the technical manual for the DoMD-Toolkit. This comprehe
 The toolkit currently comprises three specialized engines, accessible via the [DoMD-Toolkit WebUI](https://www.domd.today/tools):
 
 * **DOMD-AL:** An all-in-one reaction simulation engine driven by a bespoke Reaction Domain-Specific Language (DSL). It utilizes a mean-field approximation to dynamically generate CG topologies from abstract chemical logic, eventually yielding fully parameterized AA force fields.
-* **DOMD-TOPO:** A topological "Chemical Compilation" engine designed for Coarse-Graining to Fine-Graining (CG-FG) reconstruction. It operates on a vastly simplified DSL, functioning optimally when the CG conformation and configuration are pre-supplied.
+* **DOMD-TOPO:** A topological FG engine designed for Coarse-Graining to Fine-Graining (CG-FG) reconstruction. It operates on a vastly simplified DSL, functioning optimally when the CG conformation and configuration are pre-supplied.
 * **OPLS-AUTOFF:** An automatic OPLS force-field parameterizer that receives AA geometries and generates ready-to-use simulation topologies.
 
 ---
