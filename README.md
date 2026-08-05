@@ -154,20 +154,81 @@ The following configuration delineates the operational modality of DOMD-TOPO whe
 ### 5.1 Simplified Reactants and Rigid Anchoring
 
 ```json
-"cg_topology_file": "out_au_peo_au_large.xml",
-"reactants": [
-    { "name": "PEO", "smiles": "OCCO" },
-    { "name": "Au_G", "smarts": "[Au]" }
-],
-"fillers": [
-    {
-        "name": "Au", "file": "au.pdb",
-        "mappings": [
-            { "cg_id": 0, "atom_idx": [0], "type": "Au_G" }
-        ],
-        "filler_idx": [0]
-    }
-]
+{
+    "cg_topology_file": "out_au_peo_au_large.xml",
+    "reactions": [
+        {
+            "name": "a",
+            "reactants": [
+                [
+                    "PEO",
+                    "PEO"
+                ]
+            ],
+            "smarts": "[C:1][O:2].[O:3][C:4]>>[C:1][O:2][C:4].[O:3]",
+            "prod_idx": [
+                0
+            ]
+        },
+        {
+            "name": "b",
+            "reactants": [
+                [
+                    "Au_G",
+                    "PEO"
+                ]
+            ],
+            "smarts": "[Au:1].[O:2][C:3]>>[Au:1][O:2][C:3]",
+            "prod_idx": [
+                0
+            ]
+        }
+    ],
+    "reactants": [
+        {
+            "name": "PEO",
+            "smiles": "OCCO"
+        },
+        {
+            "name": "Au_G",
+            "smarts": "[Au]"
+        }
+    ],
+    "fillers": [
+        {
+            "name": "Au",
+            "file": "au.pdb",
+            "mappings": [
+                {
+                    "cg_id": 0,
+                    "atom_idx": [
+                        0
+                    ],
+                    "type": "Au_G"
+                }..... // Other reactive sites
+            ],
+            "filler_idx": [
+                0
+            ]
+        },
+        {
+            "name": "Au",
+            "file": "au.pdb",
+            "mappings": [
+                {
+                    "cg_id": 49,
+                    "atom_idx": [
+                        49
+                    ],
+                    "type": "Au_G"
+                }
+            ],
+            "filler_idx": [
+                1
+            ]
+        }
+    ]
+}
 
 ```
 
