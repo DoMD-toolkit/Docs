@@ -1,12 +1,10 @@
 ```text
- ██████████            ██████   ██████ ██████████  
-░░███░░░░███          ░░██████ ██████ ░░███░░░░███ 
- ░███   ░░███  ██████  ░███░█████░███  ░███   ░░███
- ░███    ░███ ███░░███ ░███░░███ ░███  ░███    ░███
- ░███    ░███░███ ░███ ░███ ░░░  ░███  ░███    ░███
- ░███    ███ ░███ ░███ ░███      ░███  ░███    ███ 
- ██████████  ░░██████  █████     █████ ██████████  
-░░░░░░░░░░    ░░░░░░  ░░░░░     ░░░░░ ░░░░░░░░░░   
+██████╗  ██████╗ ███╗   ███╗██████╗    ████████╗ ██████╗  ██████╗ ██╗     ██╗  ██╗██╗████████╗
+██╔══██╗██╔═══██╗████╗ ████║██╔══██╗   ╚══██╔══╝██╔═══██╗██╔═══██╗██║     ██║ ██╔╝██║╚══██╔══╝
+██║  ██║██║   ██║██╔████╔██║██║  ██║█████╗██║   ██║   ██║██║   ██║██║     █████╔╝ ██║   ██║   
+██║  ██║██║   ██║██║╚██╔╝██║██║  ██║╚════╝██║   ██║   ██║██║   ██║██║     ██╔═██╗ ██║   ██║   
+██████╔╝╚██████╔╝██║ ╚═╝ ██║██████╔╝      ██║   ╚██████╔╝╚██████╔╝███████╗██║  ██╗██║   ██║   
+╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝   
 ```
 
 # DoMD-Toolkit: System Architecture and Global Workflow
@@ -15,146 +13,119 @@ This document serves as the technical manual for the DoMD-Toolkit. This comprehe
 
 The toolkit currently comprises three specialized engines, accessible via the [DoMD-Toolkit WebUI](https://www.domd.today/tools):
 
-1. **DOMD-AL:** An all-in-one reaction simulation engine driven by a bespoke Reaction DSL.
-2. **DOMD-TOPO:** A topological "Chemical Compilation" engine for Coarse-Graining to Fine-Graining (CG-FG) reconstruction.
-3. **OPLS-AUTOFF:** An automatic OPLS force-field parameterizer generating ready-to-use simulation topologies.
-To effectively utilize the toolkit, a rigorous understanding of module interactions and the conceptual primitives defining the chemical system is required.
+* **DOMD-AL:** An all-in-one reaction simulation engine driven by a bespoke Reaction Domain-Specific Language (DSL). It utilizes a mean-field approximation to dynamically generate CG topologies from abstract chemical logic, eventually yielding fully parameterized AA force fields.
+* **DOMD-TOPO:** A topological FG engine designed for Coarse-Graining to Fine-Graining (CG-FG) reconstruction. It operates on a vastly simplified DSL, functioning optimally when the CG conformation and configuration are pre-supplied.
+* **OPLS-AUTOFF:** An automatic OPLS force-field parameterizer that receives AA geometries and generates ready-to-use simulation topologies.
 
 ---
 
-## 1. The Global Workflow
+## 1. The Global Workflow and System Architecture
 
-The architectural framework of the DoMD-Toolkit operates on a sequential pipeline: **Definition $\rightarrow$ Reaction $\rightarrow$ Fine-Graining $\rightarrow$ Parameterization**.
+The fundamental design of the DoMD-Toolkit relies on a highly flexible Reaction DSL. In an ideal, end-to-end workflow, the DSL encapsulates both the CG-FG mapping information and the explicit chemical logic (e.g., radical initiation, general step-growth).
+
+This comprehensive data structure drives a continuous state machine loop:
+**Evaluate System State $\rightarrow$ Extract Candidates (via spatial sampling) $\rightarrow$ React (constructing CG operators via SMARTS parsing).**
+
+Candidate extraction can be resolved either through **Particle Simulations** (yielding CG topology and conformation simultaneously) or via **Mean-Field Approximations** (yielding CG topology, which requires a subsequent coordinate embedding step). The generalized pathways are illustrated below:
 
 ```mermaid
 flowchart TD
-    A[Reaction DSL config.json] -->|Defines System| B(DOMD-AL)
-    B -->|Mean-field / Particle Simulation| C[CG Conformation & Reaction Path]
+    A[Full Reaction DSL config.json] --> B[State Machine Loop]
+    B --> |Evaluate Candidates| C{Simulation Method}
     
-    C -->|Input| D(DOMD-TOPO)
-    A_Simp[Simplified config.json] -.->|Optional Direct Input| D
+    C -->|Particle Simulation| D[CG Topology & Conformation]
+    C -->|Mean-Field Approx| E[CG Topology]
     
-    D -->|S-CGFG Reconstruction| E[All-Atom sdf/pdb Files]
+    E --> |Coordinate Embedding Algorithm| D
     
-    E -->|Input| F(OPLS-AUTOFF)
-    F -->|Parameterization| G[Gromacs gro/top or itp Files]
+    D --> |Reaction Path & CG Layout| F(DOMD-TOPO: S-CGFG Reconstruction)
+    
+    H[Pre-existing CG Conformation] --> |Simplified config.json| F
+    
+    F --> |All-Atom sdf/pdb Files| G(OPLS-AUTOFF: Parameterization)
+    G --> I[Gromacs gro/top or itp Files]
+    
+    subgraph DOMD-AL [DOMD-AL Engine Pipeline]
+        A
+        B
+        C
+        E
+    end
 
 ```
-
-### 1.1 The Step-by-Step Pipeline
-
-* **Step 1: System Definition (Reaction DSL).** The protocol initiates with a `config.json` file formulated in the Reaction DSL. This configuration establishes the CG scheme, defining fundamental reactants, filler materials, and the governing topological reaction rules.
-* **Step 2: Reaction Simulation (DOMD-AL).** Driven by the DSL, DOMD-AL executes CG-scale simulations utilizing either mean-field approximations or particle-based engines. It evaluates spatial candidates, applies stochastic reaction probabilities, and produces a dynamic chronological sequence of structural transformations. The ultimate output comprises an equilibrated CG conformation alongside a detailed reaction trajectory.
-* **Step 3: Fine-Graining (DOMD-TOPO).** The resulting CG conformation is transferred to DOMD-TOPO. This engine employs a SMILES/SMARTS-driven framework (S-CGFG) to deterministically backmap the coarse-grained topology into a fully coordinate-embedded AA structure.
-* **Step 4: Force-Field Assignment (OPLS-AUTOFF).** Finally, the AA structure is processed by OPLS-AUTOFF. This module assigns OPLS force-field parameters—augmented by BOSS database heuristics and machine learning inference—to output standard GROMACS `.gro` and `.top`/`.itp` files.
-
 ---
 
-## 2. System Definitions & Architectural Primitives
+## 2. System Definitions and Architectural Primitives
 
-To precisely model reaction kinetics and topology, the Reaction DSL relies on a strict set of conceptual primitives.
+To precisely model reaction kinetics and geometric boundaries, the Reaction DSL relies on a strict set of conceptual primitives.
 
-### 2.1 Core Entities
+### 2.1 Core Chemical Entities
 
 | Entity | Definition & Structural Behavior |
 | --- | --- |
-| **Reactant** | The fundamental chemical unit. It is defined via a standard `smiles` string (for complete molecules) or a `smarts` string (for molecular fragments). Each reactant must specify a `max_valence` parameter to establish the theoretical upper bound of permissible reaction edges. |
-| **Filler** | A specialized composite construct utilized to model complex topological entities (e.g., nanoparticles, crosslinkers). Architecturally, a filler is resolved into an **unreactive central core** conjugated to multiple **reactive arms**. These arms reference a specific `type` of a standard reactant, thereby inheriting its structural attributes and integrating into its corresponding dynamic node pools. |
-| **Reaction** | The topological rule governing inter-entity connectivity. Reactions are formulated using RDKit-compatible SMARTS templates (e.g., `[C:1].[N:2]>>[C:1][N:2]`), which dictate the precise mechanism of edge addition to the CG graph following a successful chemical event. |
+| **Reactant** | The fundamental chemical unit, defined via a standard `smiles` string (for complete molecules) or a `smarts` string (for fragments). Each reactant must declare a `max_valence` parameter, establishing the theoretical upper bound for permissible reaction edges. |
+| **Filler** | A composite construct utilized to introduce macroscopic topological boundaries, such as nanoparticles or crosslinking hubs, into the CG phase. Architecturally, a filler is resolved into an **unreactive central core** conjugated to multiple **reactive arms**. These arms reference the `type` of a standard reactant, inheriting its structural attributes and integrating directly into the system's dynamic node pools. |
+| **Reaction** | The topological rule governing inter-entity connectivity. Formulated using RDKit-compatible SMARTS templates (e.g., `[C:1].[N:2]>>[C:1][N:2]`), these rules dictate the precise mechanism of coarse-grained edge addition following a successful stochastic reaction event. |
 
-### 2.2 System State & Graph Dynamics
+### 2.2 System State and Graph Dynamics
 
-* **Slot Alignment:** This serves as the universal coordinate system within the DSL. Indices defined via SMARTS atom mapping (e.g., `:1`, `:2`) strictly correlate with the reactant list, candidate nodes, and designated type changes.
-* **Valence Constraints:** The `max_valence` parameter operates as a strict upper limit for reaction-induced edges. Pre-existing structural bonds, such as those linking a filler core to its respective arms, do not deplete this reactive valence capacity.
+* **Slot Alignment:** This operates as the universal coordinate system within the DSL. Indices defined via SMARTS atom mapping (e.g., `:1`, `:2`) strictly correlate with the reactant list, candidate nodes, and designated type changes.
 * **General vs. Radical Mechanisms:**
-* *General reactions* involve stochastic sampling from the aggregate pool of nodes matching the requisite type.
-* *Radical reactions* mandate strict pool segregation: initiating slots are exclusively drawn from an `active` node pool, whereas target slots are selected from an `inactive` pool.
-* **Type Changes:** Reactions may be deterministically coupled with `type_changes`. Upon the acceptance and logging of a primary reaction within the reaction path, any associated type transitions (e.g., Node B converting to Node C) are executed sequentially as subsequent pseudo-time events.
+* *General reactions* involve stochastic sampling from the aggregate pool of all nodes matching the requisite type.
+* *Radical reactions* mandate strict pool segregation: initiating slots are drawn exclusively from an `active` node pool, whereas target slots are sampled from an `inactive` pool.
+
+
 
 
 
 ---
 
-## 3. Tool Synergy & DSL Flexibility
+## 3. Engine Specifications and DSL Flexibility
 
-The DoMD-Toolkit is engineered for modularity, accommodating users who require complete kinetic simulations as well as those who possess pre-equilibrated structural data.
+The modularity of the toolkit permits users to enter the pipeline at different stages of their research workflow.
 
-### 3.1 DOMD-AL: The Full State Machine
+### 3.1 DOMD-AL: The Full Kinetic State Machine
 
-For execution within DOMD-AL, a comprehensive DSL specification is mandatory. The computational engine relies on a complete state machine—encompassing dynamic node pools, strict valence tracking, intrinsic probabilities, and customizable spatial algorithms (`candidate_fn` and `prob_fn`)—to accurately integrate the simulated reaction kinetics over discrete time steps.
+For execution within DOMD-AL, a comprehensive DSL specification is mandatory. The computational engine relies on the complete state machine—encompassing dynamic node pools, strict valence tracking, intrinsic probabilities, and spatial candidate evaluation—to accurately integrate the simulated reaction kinetics over discrete time steps.
 
 ### 3.2 DOMD-TOPO: The Simplified Configuration
 
-For systems with a predefined CG scheme and a corresponding CG conformation (e.g., derived from external molecular dynamics engines), formulating a complex DSL outlining reaction kinetics is unnecessary.
+For systems possessing a predefined CG scheme and a corresponding CG conformation (e.g., configurations exported from an external coarse-grained particle engine), formulating a complex kinetic DSL is computationally redundant.
 
-In the context of **DOMD-TOPO**, the `config.json` is significantly condensed, requiring only:
-
-* A `reactants_config` dictionary mapping active CG bead types to their constituent AA SMILES representations.
-
-
-* A simplified `reaction_template` detailing the topological SMARTS templates that govern spatial bead connectivity.
-
-
-
-Functioning strictly as a "Chemical Compiler," DOMD-TOPO bypasses dynamic simulation semantics (such as reaction probabilities and active/inactive state tracking). In instances where empirical chronological reaction order pathways are omitted, DOMD-TOPO defaults to a Breadth-First Search (BFS) algorithm to deduce fundamental connection pathways and reconstruct the fully atomistic topological graph.
+In this context, the `config.json` is aggressively simplified. DOMD-TOPO operates strictly as a "Chemical Compiler," bypassing dynamic simulation semantics (such as `intrinsic_probability` and active/inactive state tracking) to focus exclusively on atomistic mapping rules and connection SMARTS. If empirical chronological reaction pathways are absent, the engine defaults to a Breadth-First Search (BFS) algorithm to dynamically deduce valid connection pathways and reconstruct the fully atomistic topological graph.
 
 ---
 
-## 4. DOMD-AL Example Configuration
+## 4. DOMD-AL Example: Full Kinetic Simulation
 
-The following `config.json` (in `Examples/domd_al_test.zip`) demonstrates a hybrid system featuring radical polymerization and a nanoparticle filler acting as a crosslinking hub.
+To elucidate the operational mechanics of DOMD-AL, the following `config.json` snippet models a hybrid system characterized by radical polymerization alongside a nanoparticle filler functioning as a topological crosslinking hub.
 
-### 4.1 Reactants
-
-The `reactants` array initializes the fundamental chemical species.
-
-| Name | Formula | Properties | System Function |
-| --- | --- | --- | --- |
-| **I** | `CC` | `N=5`, `max_valence=1`, `activate=5` | **Initiator:** Five molecules are instantiated and assigned to the `active` pool to propagate radical reactions. Valence is restricted to 1. |
-| **P** | `CC` | `N=10`, `max_valence=2` | **Monomer:** Ten molecules originate in the `inactive` pool. A `max_valence` of 2 permits linear chain propagation. |
-| **R** | `[N:1]([H:2])[H:3]` | `N=2`, `max_valence=1`, `activate=0` | **Reactive Linker:** Molecules act as reactive sites. They integrate with filler structures to dictate specific topological limits. |
-
-### 4.2 Fillers
-
-The `fillers` section dictates spatial constraints and complex geometric boundaries.
+### 4.1 Reactants and Fillers Initialization
 
 ```json
+"reactants": [
+  { "name": "I", "smiles": "CC", "N": 5, "max_valence": 1, "activate": 5 },
+  { "name": "P", "smiles": "CC", "N": 10, "max_valence": 2 },
+  { "name": "R", "smarts": "[N:1]([H:2])[H:3]", "max_valence": 1 }
+],
 "fillers": [
   {
-    "name": "SiO2",
-    "N": 1,
-    "file": "core.pdb",
-    "mappings": [...]
+    "name": "SiO2", "N": 1, "file": "core.pdb",
+    "mappings": [
+      { "cg_id": 1, "type": "R", "atom_idx": [0, 32, 33] },
+      { "cg_id": 2, "type": "R", "atom_idx": [23, 38, 39] }
+    ]
   }
 ]
 
 ```
 
-* **Structural Parsing:** The filler is partitioned into a non-reactive central core and four reactive exterior arms mapped to specific coordinate indices.
-* **Type Inheritance:** Each arm is assigned `"type": "R"`, inheriting its structural properties and integrating directly into the global dynamic node pool for reactant `R`.
+* **System Function:** Initiator molecules (`I`) are instantiated entirely within the `active` node pool to propagate radical reactions. Monomers (`P`) originate in the `inactive` pool.
+* **Filler Integration:** The `SiO2` filler maps discrete spatial coordinates (`atom_idx`) to specific CG nodes (`cg_id`). Crucially, these peripheral arms are assigned `"type": "R"`, inheriting the properties of reactant `R` and injecting reactive sites directly onto the rigid nanoparticle surface.
 
 
 
-```mermaid
-graph TD
-    C["SiO2 Filler Center (Non-reactive)"] --- A1["Arm cg_id:1 (Type: R)"]
-    C --- A2["Arm cg_id:2 (Type: R)"]
-    C --- A3["Arm cg_id:3 (Type: R)"]
-    C --- A4["Arm cg_id:4 (Type: R)"]
-    
-    style C fill:#f9f,stroke:#333,stroke-width:2px
-    style A1 fill:#bbf,stroke:#333
-    style A2 fill:#bbf,stroke:#333
-    style A3 fill:#bbf,stroke:#333
-    style A4 fill:#bbf,stroke:#333
-
-```
-
-### 4.3 Reaction Rules
-
-The `reactions` array establishes topological rules and state transitions.
-
-#### A. Radical Mechanisms (Initiation and Propagation)
+### 4.2 Dynamic Reaction Rules
 
 ```json
 {
@@ -162,31 +133,7 @@ The `reactions` array establishes topological rules and state transitions.
   "kind": "radical",
   "reactants": ["I", "P"],
   "activation": { "from": 0, "to": 1 }
-}
-
-```
-
-* **Mechanism Execution:** The `"radical"` designation enforces strict pool partitioning. Slot 0 (`I`) is sampled from the active pool; Slot 1 (`P`) is sampled from the inactive pool.
-* **Active State Transfer:** Following a successful reaction, the `"activation"` block shifts the radical state from Slot 0 to Slot 1.
-
-
-```mermaid
-sequenceDiagram
-    participant Active Pool
-    participant Inactive Pool
-    participant System State
-    
-    Active Pool->>System State: Slot 0 (Reactant I)
-    Inactive Pool->>System State: Slot 1 (Reactant P)
-    System State-->>System State: Form I-P Topological Edge
-    System State->>Inactive Pool: Slot 0 (I) loses active state
-    System State->>Active Pool: Slot 1 (P) gains active state
-
-```
-
-#### B. General Mechanisms and Explicit State Logging
-
-```json
+},
 {
   "name": "PP-general",
   "reactants": ["P", "P"],
@@ -195,76 +142,102 @@ sequenceDiagram
 
 ```
 
-* **Isomorphic Transition:** Instructing Node 0 (type `P`) to transition to type `"P"` forces the deterministic generation of a `TypeChangeEvent(from=P, to=P)`. This pattern explicitly records a coarse-grained coupling event in the Reaction Path without generating superficial chemical types.
+* **Radical Propagation:** The `IP-radical` rule enforces strict pool partitioning. Slot 0 (`I`) is sampled from the active pool, and Slot 1 (`P`) from the inactive pool. Upon topological edge formation, the `"activation"` block transfers the radical state from Slot 0 to Slot 1.
+* **Explicit State Logging:** The `PP-general` rule omits the `kind` parameter, defaulting to a general mechanism. Instructing Node 0 to transition to type `"P"` forces the deterministic generation of an explicit `TypeChangeEvent` in the Reaction Path, documenting a coarse-grained coupling event without fabricating superficial chemical types.
 
+---
 
+## 5. DOMD-TOPO Example: Static Topological Reconstruction
+
+The following configuration delineates the operational modality of DOMD-TOPO when decoupled from dynamic simulations. Deployed when a user provides a pre-equilibrated coarse-grained configuration lacking explicit reaction history, it utilizes a BFS fallback algorithm to achieve deterministic AA reconstruction.
+
+### 5.1 Simplified Reactants and Rigid Anchoring
 
 ```json
 {
-  "name": "RP-general",
-  "reactants": ["R", "P"],
-  "smarts": "[N:1][H:3].[CH3:2]>>[N:1][C:2].[H:3]",
-  "prod_idx": [0],
-  "intrinsic_probability": 0.1,
-  "type_changes": [ { "node": 1, "to": "P" } ]
+    "cg_topology_file": "out_au_peo_au_large.xml",
+    "reactions": [
+        {
+            "name": "a",
+            "reactants": [
+                [
+                    "PEO",
+                    "PEO"
+                ]
+            ],
+            "smarts": "[C:1][O:2].[O:3][C:4]>>[C:1][O:2][C:4].[O:3]",
+            "prod_idx": [
+                0
+            ]
+        },
+        {
+            "name": "b",
+            "reactants": [
+                [
+                    "Au_G",
+                    "PEO"
+                ]
+            ],
+            "smarts": "[Au:1].[O:2][C:3]>>[Au:1][O:2][C:3]",
+            "prod_idx": [
+                0
+            ]
+        }
+    ],
+    "reactants": [
+        {
+            "name": "PEO",
+            "smiles": "OCCO"
+        },
+        {
+            "name": "Au_G",
+            "smarts": "[Au]"
+        }
+    ],
+    "fillers": [
+        {
+            "name": "Au",
+            "file": "au.pdb",
+            "mappings": [
+                {
+                    "cg_id": 0,
+                    "atom_idx": [
+                        0
+                    ],
+                    "type": "Au_G"
+                }..... // Other reactive sites
+            ],
+            "filler_idx": [
+                0
+            ]
+        },
+        {
+            "name": "Au",
+            "file": "au.pdb",
+            "mappings": [
+                {
+                    "cg_id": 49,
+                    "atom_idx": [
+                        49
+                    ],
+                    "type": "Au_G"
+                }
+            ],
+            "filler_idx": [
+                1
+            ]
+        }
+    ]
 }
 
 ```
 
-* **Filler Crosslinking and Product Indexing:** This rule dictates topological linkage between the `R` filler arms and the `P` matrix. The `prod_idx: [0]` parameter instructs the compiler to strictly evaluate the primary RDKit product molecule to register the resulting coarse-grained edges.
+* **Kinetic Erasure:** The DSL discards dynamic state parameters (`activate`, `max_valence`, discrete `N` limits). The objective is strictly to map chemical identities to the external topology file (`out_au_peo_au_large.xml`).
+* **Explicit Anchoring:** Spatial CG nodes are mapped to precise atom indices on the input `au.pdb` structure, designated with `"type": "Au_G"`. This instructs the S-CGFG engine to treat these physical coordinates as valid structural anchoring points for the polymer matrix during the subsequent embedding phase.
 
-## 5. DOMD-TOPO Example: Static Topological Reconstruction
 
-To delineate the operational modality of DOMD-TOPO when decoupled from dynamic simulations, the following `config.json` (in `Examples/au_peg_au.zip`) illustrates a pure topological reconstruction. This configuration is deployed when a user provides a pre-equilibrated coarse-grained configuration (e.g., derived from external particle engines) but lacks the explicit chronological reaction history. Under these conditions, DOMD-TOPO functions strictly as a "Chemical Compilation" engine, utilizing a Breadth-First Search (BFS) algorithm to infer connection pathways and reconstruct the all-atom (AA) graph.
 
-### 5.1 System Initialization and Reactants
-
-In this static compilation mode, the DSL discards dynamic state parameters (such as `activate`, `max_valence`, or discrete node generation limits `N`). The objective is solely to establish the chemical identity of the CG beads mapping to the provided coordinate file.
-
-```json
-"cg_topology_file": "out_au_peo_au_large.xml",
-"reactants": [
-    {
-        "name": "PEO",
-        "smiles": "OCCO"
-    },
-    {
-        "name": "Au_G",
-        "smarts": "[Au]"
-    }
-]
-
-```
-
-* **Topological Input:** The `cg_topology_file` explicitly references an external data structure (`out_au_peo_au_large.xml`) containing the requisite 3D spatial coordinate vectors and structural rigid-body grouping indices for the CG system.
-* **Chemical Descriptors:** The `reactants` array defines the baseline molecular identities. The polyethylene oxide (`PEO`) matrix is defined via its standard SMILES string, while the reactive gold surface grafting sites (`Au_G`) are defined via an elemental SMARTS descriptor.
-
-### 5.2 Filler Constraints and Structural Mapping
-
-The `fillers` section introduces the rigid geometry of gold nanoparticles (`Au`) into the topological reconstruction.
-
-```json
-"fillers": [
-    {
-        "name": "Au",
-        "file": "au.pdb",
-        "mappings": [
-            { "cg_id": 0, "atom_idx": [0], "type": "Au_G" },
-            { "cg_id": 18, "atom_idx": [18], "type": "Au_G" }
-            // ... additional mappings ...
-        ],
-        "filler_idx": [0]
-    }
-]
-
-```
-
-* **Explicit Anchoring:** Unlike the dynamic DOMD-AL workflow where arms react randomly, this configuration strictly maps predefined CG spatial nodes (`cg_id`) to exact atom indices (`atom_idx`) on the input `au.pdb` structure.
-* **Type Designation:** Selected atoms on the gold nanoparticle surface are explicitly designated with `"type": "Au_G"`. This instructs the S-CGFG engine to treat these specific coordinates as valid structural anchoring points for the polymer matrix during the subsequent embedding phase.
-
-### 5.3 Static Reaction Templates and BFS Fallback
-
-The `reactions` block in this configuration is stripped of kinetic semantics (e.g., `intrinsic_probability`, `kind`, `activation`). It functions solely as a structural template library to direct localized topological assembly.
+### 5.2 Static Templates and BFS Fallback
 
 ```json
 "reactions": [
@@ -273,21 +246,12 @@ The `reactions` block in this configuration is stripped of kinetic semantics (e.
         "reactants": [["PEO", "PEO"]],
         "smarts": "[C:1][O:2].[O:3][C:4]>>[C:1][O:2][C:4].[O:3]",
         "prod_idx": [0]
-    },
-    {
-        "name": "b",
-        "reactants": [["Au_G", "PEO"]],
-        "smarts": "[Au:1].[O:2][C:3]>>[Au:1][O:2][C:3]",
-        "prod_idx": [0]
     }
 ]
+
 ```
 
-* **Template Mechanisms:**
-* Template `a` dictates the dehydration condensation linkage between two `PEO` monomers, relying on explicit map identifiers to define the reactive centers.
-* Template `b` delineates the grafting coordination between a gold surface site (`Au_G`) and a `PEO` oxygen atom.
-* **The Breadth-First Search (BFS) Solver:** Because the input XML file provides the final graph connectivity but lacks the chronological historical order of bond formation, the topological compiler must determine a mathematically valid sequence to iteratively construct the AA configuration.
-* **Algorithmic Resolution:** The engine implements an implicit BFS sorting algorithm to systematically infer default connection pathways across the macroscopic crosslinked network. The BFS systematically queries the static templates (`a` and `b`) to stitch the corresponding monomer subgraphs. Concurrently, it maintains a unified Reacted Atom Set to enforce state verification, ensuring that valency boundaries are not violated during the deterministic backmapping of abstract graph connections into physical Cartesian coordinates.
-* **SMARTS Execution & Product Indexing:** The SMARTS string explicitly delineates a hydrogen atom (`[H:3]`) dissociating from the nitrogen to facilitate the target `N-C` bond formation. The `prod_idx: [0]` parameter instructs the compilation engine to strictly evaluate the primary product molecule generated by the RDKit backend when registering the resultant coarse-grained edges.
+* **Topological Assembly:** The reactions block functions solely as a structural template library. The `prod_idx: [0]` parameter instructs the compiler to evaluate the primary RDKit product molecule to register the cross-slot bonds.
+* **Algorithmic Resolution:** Due to the absence of a chronological reaction trajectory in the input XML, DOMD-TOPO implements an implicit BFS sorting algorithm. The engine queries the static templates to infer default connection pathways systematically, resolving the macroscopic crosslinked network while enforcing state verification to prevent valency violations during Cartesian coordinate generation.
 
 ![au_peg_au](./images/au_peg_au.png)
